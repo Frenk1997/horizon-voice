@@ -21,7 +21,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 const MOD_ID: &str = "horizon_voice";
-const VERSION: &str = "0.3.1";
+const VERSION: &str = "0.3.2";
 
 struct State {
     voice: Voice,

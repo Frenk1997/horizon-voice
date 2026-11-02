@@ -20,8 +20,8 @@ version = re.search(r'^version = "([^"]+)"', (src_root / "Cargo.toml").read_text
 if dest.exists():
     shutil.rmtree(dest)
 shutil.copytree(src_root / "src", dest)
-# A .hnmod carries license files only at the top of a crate folder.
-shutil.copy(src_root / "COPYING", dest.parent.parent / "COPYING-opus-rs")
+# data/: the one place for a text file that every version of the registry's check accepts.
+shutil.copy(src_root / "COPYING", dest.parent.parent / "data" / "COPYING-opus-rs")
 
 (dest / "lib.rs").rename(dest / "mod.rs")
 
@@ -36,7 +36,7 @@ for path in dest.rglob("*.rs"):
     if path.name == "mod.rs" and path.parent == dest:
         # Crate-level only; the engine crate is std.
         text = text.replace('#![cfg_attr(not(feature = "std"), no_std)]\n', "")
-        text = f"// Vendored from opus-rs {version} (BSD-3-Clause, see engine/COPYING-opus-rs) by tools/vendor_opus.py.\n" + text
+        text = f"// Vendored from opus-rs {version} (BSD-3-Clause, see engine/data/COPYING-opus-rs) by tools/vendor_opus.py.\n" + text
     path.write_text(text, encoding="utf-8")
 
 print(f"vendored opus-rs {version} into {dest}")

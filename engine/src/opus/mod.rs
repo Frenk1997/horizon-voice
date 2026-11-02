@@ -1,4 +1,4 @@
-// Vendored from opus-rs 0.1.40 (BSD-3-Clause, see engine/COPYING-opus-rs) by tools/vendor_opus.py.
+// Vendored from opus-rs 0.1.40 (BSD-3-Clause, see engine/data/COPYING-opus-rs) by tools/vendor_opus.py.
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::needless_range_loop)]

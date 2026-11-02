@@ -40,4 +40,4 @@ server the Minecraft server names.
 
 ## Licence
 
-MIT (see `LICENSE`), except `engine/src/opus/`, which is BSD-3-Clause (see `engine/COPYING-opus-rs`).
+MIT (see `LICENSE`), except `engine/src/opus/`, which is BSD-3-Clause (see `engine/data/COPYING-opus-rs`).
