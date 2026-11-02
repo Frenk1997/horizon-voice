@@ -1,0 +1,24 @@
+[package]
+name = "horizon_voice_engine"
+version = "0.3.0"
+edition = "2024"
+description = "Simple Voice Chat compatible voice client for Horizon (protocol, crypto, UDP, audio)"
+license = "MIT AND BSD-3-Clause"
+publish = false
+
+# Versions must match Horizon's Cargo.lock: it is the allow list for native mod crates.
+[dependencies]
+ring = "=0.17.14"
+cpal = "=0.16.0"
+
+# The vendored opus-rs (src/opus) gates its code on these.
+[features]
+default = ["std", "heap"]
+std = []
+heap = ["std"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("libm", "portable-atomic"))'] }
+
+# No [profile] here: a native mod's crate may not have one. tools/cargo.ps1
+# optimizes the tests instead (opus-rs is far too slow unoptimized).

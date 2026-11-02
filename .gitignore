@@ -1,0 +1,7 @@
+target/
+dist/
+Cargo.lock
+# Local notes and a dev tool with this machine's paths.
+PLAN.md
+tools/probe/
+tools/probe.ps1
