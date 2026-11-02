@@ -1,6 +1,6 @@
 [mod]
 id = "horizon_voice"
-version = "0.3.2"
+version = "0.3.3"
 priority = 100
 
 [compatibility]

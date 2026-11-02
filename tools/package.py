@@ -1,6 +1,6 @@
 """Packs the mod into horizon_voice.hnmod, the file the launcher installs:
 a zip of horizon-native.json and mixins/horizon_voice/ (see tools/bundle.py),
-holding only what the launcher accepts (Rust, TOML, data/, license files).
+holding only what the registry's check accepts (Rust and TOML).
 
     python tools/package.py OUT_DIR      -> OUT_DIR/horizon_voice.hnmod
 """
@@ -17,15 +17,8 @@ out_dir.mkdir(parents=True, exist_ok=True)
 
 
 def allowed(rest: str) -> bool:
-    # horizon_mods::index::native::allowed
-    parts = rest.split("/")
-    name = parts[-1]
-    data = len(parts) >= 2 and (parts[0] == "data" or (len(parts) >= 3 and parts[1] == "data"))
-    text = len(parts) <= 2 and (
-        any(name.startswith(p) for p in ("README", "LICENSE", "LICENCE", "COPYING", "NOTICE"))
-        or name == ".gitignore"
-    )
-    return rest.endswith(".rs") or rest.endswith(".toml") or data or text
+    # The registry's check takes these alone, whatever newer launchers accept.
+    return rest.endswith(".rs") or rest.endswith(".toml")
 
 
 with tempfile.TemporaryDirectory() as tmp:

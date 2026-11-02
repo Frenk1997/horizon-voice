@@ -20,10 +20,21 @@ version = re.search(r'^version = "([^"]+)"', (src_root / "Cargo.toml").read_text
 if dest.exists():
     shutil.rmtree(dest)
 shutil.copytree(src_root / "src", dest)
-# data/: the one place for a text file that every version of the registry's check accepts.
-shutil.copy(src_root / "COPYING", dest.parent.parent / "data" / "COPYING-opus-rs")
-
 (dest / "lib.rs").rename(dest / "mod.rs")
+
+# The registry's check takes only .rs and .toml, so the licence goes in a comment.
+license = "".join(
+    f"// {line}".rstrip() + "\n"
+    for line in (src_root / "COPYING").read_text(encoding="utf-8").strip("\n").splitlines()
+)
+
+# A debugging leftover of opus-rs: writes files where OPUS_TRACE_PLC says.
+TRACE = re.compile(
+    r'        // TEMP bit-exactness trace\.\r?\n.*?\r?\n        \};\r?\n'
+    r'(        let pitch = pitch_search\(.*?\);\r?\n)'
+    r'        #\[cfg\(feature = "std"\)\]\r?\n        if trace_n != usize::MAX \{\r?\n.*?\r?\n        \}\r?\n',
+    re.S,
+)
 
 # `#[macro_export]` macros stay at the crate root wherever they are defined.
 macros = set()
@@ -32,11 +43,12 @@ for path in dest.rglob("*.rs"):
 
 for path in dest.rglob("*.rs"):
     text = path.read_text(encoding="utf-8")
+    text = TRACE.sub(r"\1", text)
     text = re.sub(r"\bcrate::(?!(?:%s)\b)" % "|".join(macros or ["$^"]), "crate::opus::", text)
     if path.name == "mod.rs" and path.parent == dest:
         # Crate-level only; the engine crate is std.
         text = text.replace('#![cfg_attr(not(feature = "std"), no_std)]\n', "")
-        text = f"// Vendored from opus-rs {version} (BSD-3-Clause, see engine/data/COPYING-opus-rs) by tools/vendor_opus.py.\n" + text
+        text = f"// Vendored from opus-rs {version} by tools/vendor_opus.py. Its licence (BSD-3-Clause):\n//\n{license}\n" + text
     path.write_text(text, encoding="utf-8")
 
 print(f"vendored opus-rs {version} into {dest}")
