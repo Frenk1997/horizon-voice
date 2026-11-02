@@ -14,13 +14,14 @@ use horizon_protocol::packets::configuration::CustomPayload;
 use horizon_protocol::packets::play::{Clientbound as C, Serverbound as S};
 use horizon_voice_engine::audio;
 use horizon_voice_engine::groups::GroupType;
+use horizon_voice_engine::i18n::Lang;
 use horizon_voice_engine::settings::{self, Click, PageState};
 use horizon_voice_engine::voice::{Activation, Config, Listener, Status, Voice};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 const MOD_ID: &str = "horizon_voice";
-const VERSION: &str = "0.3.0";
+const VERSION: &str = "0.3.1";
 
 struct State {
     voice: Voice,
@@ -95,6 +96,10 @@ pub(super) fn on_packet(game: &mut Game<'_>, packet: &C) {
     }
 }
 
+fn lang(game: &Game<'_>) -> Lang {
+    Lang::of(&game.settings.language)
+}
+
 fn flush(game: &Game<'_>, st: &mut State) {
     for (channel, data) in st.voice.take_outgoing() {
         game.send(S::CustomPayload(CustomPayload { channel, data }));
@@ -105,7 +110,9 @@ pub(super) fn on_frame(game: &mut Game<'_>) {
     if !game.native_window() {
         return;
     }
+    let l = lang(game);
     let mut st = state();
+    st.voice.lang = l;
     let on_server = game.remote.as_ref().is_some_and(|r| r.joined && r.reconfiguring.is_none());
     if !on_server {
         if st.active {
@@ -155,16 +162,19 @@ pub(super) fn on_frame(game: &mut Game<'_>) {
             Status::Connected => {
                 let key = push_to_talk_key(game, &st);
                 let how = match st.voice.config.activation {
-                    Activation::PushToTalk => format!("hold {} to talk", key_label(&key)),
-                    Activation::Voice => "voice activation".to_owned(),
+                    Activation::PushToTalk => {
+                        let k = key_label(&key);
+                        l.pick(format!("hold {k} to talk"), format!("держи {k}, чтобы говорить"))
+                    }
+                    Activation::Voice => l.pick("voice activation", "голосовая активация").to_owned(),
                 };
-                let mut line = format!("[Voice] Connected ({how})");
+                let mut line = l.pick(format!("[Voice] Connected ({how})"), format!("[Voice] Подключено ({how})"));
                 if let Some(e) = st.voice.audio_error() {
-                    line.push_str(&format!(" - audio problem: {e}"));
+                    line.push_str(&l.pick(format!(" - audio problem: {e}"), format!(" - проблема со звуком: {e}")));
                 }
                 Some(line)
             }
-            Status::Failed(e) => Some(format!("[Voice] Not connected: {e}")),
+            Status::Failed(e) => Some(l.pick(format!("[Voice] Not connected: {e}"), format!("[Voice] Нет подключения: {e}"))),
             Status::Connecting | Status::Idle => None,
         };
         st.last_status = status;
@@ -179,7 +189,7 @@ fn push_to_talk_key(game: &Game<'_>, st: &State) -> String {
     game.native_mod_key(MOD_ID, "push_to_talk", &st.voice.config.ptt_key)
 }
 
-// `key.keyboard.v` в†’ `V`.
+// `key.keyboard.v` → `V`.
 fn key_label(key: &str) -> String {
     key.rsplit('.').next().unwrap_or(key).to_uppercase()
 }
@@ -200,7 +210,12 @@ pub(super) fn on_key(game: &mut Game<'_>, key: &str, pressed: bool) {
         let muted = st.voice.muted();
         st.last_muted = muted;
         drop(st);
-        game.native_chat(if muted { "[Voice] Microphone muted" } else { "[Voice] Microphone on" });
+        let l = lang(game);
+        game.native_chat(if muted {
+            l.pick("[Voice] Microphone muted", "[Voice] Микрофон выключен")
+        } else {
+            l.pick("[Voice] Microphone on", "[Voice] Микрофон включён")
+        });
     }
 }
 
@@ -221,7 +236,8 @@ fn open_menu(game: &mut Game<'_>) {
 }
 
 // `/vgroup ...`: the groups, with names and passwords the page can't type.
-const USAGE: &str = "/vgroup list | join <РіСЂСѓРїРїР°> [РїР°СЂРѕР»СЊ] | create <РіСЂСѓРїРїР°> [РїР°СЂРѕР»СЊ] [normal|open|isolated] | leave";
+const USAGE_EN: &str = "/vgroup list | join <group> [password] | create <group> [password] [normal|open|isolated] | leave";
+const USAGE_RU: &str = "/vgroup list | join <группа> [пароль] | create <группа> [пароль] [normal|open|isolated] | leave";
 
 // Words, with "quoted phrases" as one.
 fn words(text: &str) -> Vec<String> {
@@ -255,36 +271,37 @@ pub(super) fn on_command(game: &mut Game<'_>, command: &str, ran: &mut bool) {
         return;
     }
     *ran = true;
+    let l = lang(game);
     let reply = {
         let mut st = state();
         if !st.voice.connected() {
-            "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚ РЅРµ РїРѕРґРєР»СЋС‡С‘РЅ".to_owned()
+            l.pick("Voice chat is not connected", "Голосовой чат не подключён").to_owned()
         } else {
             match (w.get(1).map(String::as_str), w.get(2)) {
                 (Some("list") | None, _) => {
                     let list = st.voice.group_list();
                     if list.is_empty() {
-                        "Р“СЂСѓРїРї РЅРµС‚. РЎРѕР·РґР°С‚СЊ: /vgroup create <РЅР°Р·РІР°РЅРёРµ>".to_owned()
+                        l.pick("No groups. Create one: /vgroup create <name>", "Групп нет. Создать: /vgroup create <название>").to_owned()
                     } else {
                         let current = st.voice.current_group().map(|g| g.id);
                         let lines: Vec<String> = list
                             .iter()
                             .map(|(g, n)| {
-                                let lock = if g.has_password { ", РїР°СЂРѕР»СЊ" } else { "" };
-                                let here = if Some(g.id) == current { " <- РІС‹ Р·РґРµСЃСЊ" } else { "" };
+                                let lock = if g.has_password { l.pick(", password", ", пароль") } else { "" };
+                                let here = if Some(g.id) == current { l.pick(" <- you are here", " <- вы здесь") } else { "" };
                                 let who = st.voice.members(g.id).join(", ");
                                 format!("{} ({n}{lock}): {who}{here}", g.name)
                             })
                             .collect();
-                        format!("Р“СЂСѓРїРїС‹: {}", lines.join("; "))
+                        format!("{}: {}", l.pick("Groups", "Группы"), lines.join("; "))
                     }
                 }
                 (Some("join"), Some(name)) => match st.voice.find_group(name).map(|g| g.id) {
                     Some(id) => {
                         st.voice.join_group(id, w.get(3).map(String::as_str));
-                        format!("Р’С…РѕРґ РІ РіСЂСѓРїРїСѓ В«{name}В»вЂ¦")
+                        l.pick(format!("Joining group \"{name}\"..."), format!("Вход в группу «{name}»…"))
                     }
-                    None => format!("РќРµС‚ РіСЂСѓРїРїС‹ В«{name}В»: /vgroup list"),
+                    None => l.pick(format!("No group \"{name}\": /vgroup list"), format!("Нет группы «{name}»: /vgroup list")),
                 },
                 (Some("create"), Some(name)) => {
                     let kind = match w.get(4).map(String::as_str) {
@@ -293,13 +310,13 @@ pub(super) fn on_command(game: &mut Game<'_>, command: &str, ran: &mut bool) {
                         _ => GroupType::Normal,
                     };
                     st.voice.create_group(name, w.get(3).map(String::as_str), kind);
-                    format!("РЎРѕР·РґР°СЋ РіСЂСѓРїРїСѓ В«{name}В»вЂ¦")
+                    l.pick(format!("Creating group \"{name}\"..."), format!("Создаю группу «{name}»…"))
                 }
                 (Some("leave"), _) => {
                     st.voice.leave_group();
-                    "Р’С‹С…РѕРґ РёР· РіСЂСѓРїРїС‹вЂ¦".to_owned()
+                    l.pick("Leaving the group...", "Выход из группы…").to_owned()
                 }
-                _ => USAGE.to_owned(),
+                _ => l.pick(USAGE_EN, USAGE_RU).to_owned(),
             }
         }
     };
@@ -307,26 +324,29 @@ pub(super) fn on_command(game: &mut Game<'_>, command: &str, ran: &mut bool) {
 }
 
 pub(super) fn on_hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corners) {
+    let l = lang(game);
     let st = state();
     if !(st.active || st.voice.mic_test()) || !game.native_corner_shown(Corner::BottomLeft) {
         return;
     }
     let speakers = st.voice.speakers().len();
+    let word = l.pick("Voice", "Голос");
     let voice = match st.voice.current_group() {
-        Some(g) => format!("Voice [{}]", g.name),
-        None => "Voice".to_owned(),
+        Some(g) => format!("{word} [{}]", g.name),
+        None => word.to_owned(),
     };
     let (text, rgb) = match st.voice.status() {
         _ if st.voice.mic_test() => {
             let rgb = if st.voice.talking() { 0x55FF55 } else { 0xAAAAAA };
-            (format!("Voice: mic test {} dB", st.voice.level_db().round().max(-99.0)), rgb)
+            let level = st.voice.level_db().round().max(-99.0);
+            (l.pick(format!("Voice: mic test {level} dB"), format!("Голос: проверка микрофона {level} дБ")), rgb)
         }
-        Status::Connected if st.voice.muted() => (format!("{voice}: muted"), 0xFF5555),
-        Status::Connected if st.voice.talking() => (format!("{voice}: talking"), 0x55FF55),
-        Status::Connected if speakers > 0 => (format!("{voice}: {speakers} speaking"), 0xFFFF55),
+        Status::Connected if st.voice.muted() => (format!("{voice}: {}", l.pick("muted", "микрофон выкл")), 0xFF5555),
+        Status::Connected if st.voice.talking() => (format!("{voice}: {}", l.pick("talking", "говоришь")), 0x55FF55),
+        Status::Connected if speakers > 0 => (l.pick(format!("{voice}: {speakers} speaking"), format!("{voice}: говорят {speakers}")), 0xFFFF55),
         Status::Connected => (voice, 0xAAAAAA),
-        Status::Connecting => ("Voice: connecting".to_owned(), 0xAAAAAA),
-        Status::Failed(_) => ("Voice: off".to_owned(), 0xFF5555),
+        Status::Connecting => (format!("{word}: {}", l.pick("connecting", "подключение")), 0xAAAAAA),
+        Status::Failed(_) => (format!("{word}: {}", l.pick("off", "выкл")), 0xFF5555),
         Status::Idle => return,
     };
     drop(st);
@@ -338,26 +358,28 @@ pub(super) fn on_hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Co
 }
 
 // Options > Mods: the mod's row, its keys (rebindable there) and its page.
-pub(super) fn on_mods(mods: &mut Vec<NativeMod>) {
+pub(super) fn on_mods(game: &Game<'_>, mods: &mut Vec<NativeMod>) {
+    let l = lang(game);
     let key = |name: &str, label: &str, default: &str| [name.to_owned(), label.to_owned(), default.to_owned()];
     mods.push(NativeMod {
         id: MOD_ID.into(),
         title: format!("Horizon Voice {VERSION}"),
-        description: "Р“РѕР»РѕСЃРѕРІРѕР№ С‡Р°С‚, СЃРѕРІРјРµСЃС‚РёРјС‹Р№ СЃ Simple Voice Chat".into(),
+        description: l.pick("Voice chat compatible with Simple Voice Chat", "Голосовой чат, совместимый с Simple Voice Chat").into(),
         keys: vec![
-            key("push_to_talk", "Р“РѕРІРѕСЂРёС‚СЊ (push-to-talk)", "key.keyboard.v"),
-            key("mute", "Р’С‹РєР»СЋС‡РёС‚СЊ РјРёРєСЂРѕС„РѕРЅ", "key.keyboard.m"),
-            key("menu", "РњРµРЅСЋ РіРѕР»РѕСЃРѕРІРѕРіРѕ С‡Р°С‚Р°", MENU_KEY),
+            key("push_to_talk", l.pick("Push to talk", "Говорить (push-to-talk)"), "key.keyboard.v"),
+            key("mute", l.pick("Mute microphone", "Выключить микрофон"), "key.keyboard.m"),
+            key("menu", l.pick("Voice chat menu", "Меню голосового чата"), MENU_KEY),
         ],
     });
 }
 
-fn page_labels(st: &State) -> Vec<String> {
+fn page_labels(st: &State, lang: Lang) -> Vec<String> {
     let microphones = audio::input_device_names();
     let speakers = audio::output_device_names();
     let groups = st.voice.group_list();
     let current = st.voice.current_group().map(|g| (g, st.voice.members(g.id).len()));
     let page = PageState {
+        lang,
         mic_test: st.voice.mic_test(),
         level_db: st.voice.level_db(),
         microphones: &microphones,
@@ -369,17 +391,18 @@ fn page_labels(st: &State) -> Vec<String> {
     settings::labels(&st.voice.config, &page)
 }
 
-pub(super) fn on_settings(mod_id: &str, buttons: &mut Vec<String>) {
+pub(super) fn on_settings(game: &Game<'_>, mod_id: &str, buttons: &mut Vec<String>) {
     if mod_id != MOD_ID {
         return;
     }
-    buttons.extend(page_labels(&state()));
+    buttons.extend(page_labels(&state(), lang(game)));
 }
 
 pub(super) fn on_settings_click(game: &mut Game<'_>, mod_id: &str, button: usize) {
     if mod_id != MOD_ID {
         return;
     }
+    let l = lang(game);
     let mut st = state();
     let microphones = audio::input_device_names();
     let speakers = audio::output_device_names();
@@ -387,6 +410,7 @@ pub(super) fn on_settings_click(game: &mut Game<'_>, mod_id: &str, button: usize
     let current = st.voice.current_group().cloned();
     let current_n = current.as_ref().map_or(0, |g| st.voice.members(g.id).len());
     let page = PageState {
+        lang: l,
         mic_test: st.voice.mic_test(),
         level_db: st.voice.level_db(),
         microphones: &microphones,
@@ -401,15 +425,18 @@ pub(super) fn on_settings_click(game: &mut Game<'_>, mod_id: &str, button: usize
         Click::LeaveGroup => st.voice.leave_group(),
         Click::CreateGroup => {
             let name = match st.voice.my_name() {
-                Some(me) => format!("Р“СЂСѓРїРїР° {me}"),
-                None => "РњРѕСЏ РіСЂСѓРїРїР°".to_owned(),
+                Some(me) => l.pick(format!("{me}'s group"), format!("Группа {me}")),
+                None => l.pick("My group", "Моя группа").to_owned(),
             };
             st.voice.create_group(&name, None, GroupType::Normal);
         }
         Click::JoinGroup(id, false) => st.voice.join_group(id, None),
         Click::JoinGroup(id, true) => {
             let name = groups.iter().find(|(g, _)| g.id == id).map_or(String::new(), |(g, _)| g.name.clone());
-            say = Some(format!("[Voice] РЈ РіСЂСѓРїРїС‹ РїР°СЂРѕР»СЊ: /vgroup join \"{name}\" <РїР°СЂРѕР»СЊ>"));
+            say = Some(l.pick(
+                format!("[Voice] This group has a password: /vgroup join \"{name}\" <password>"),
+                format!("[Voice] У группы пароль: /vgroup join \"{name}\" <пароль>"),
+            ));
         }
         Click::Changed => {
             if let Ok(dir) = Game::native_config_dir() {

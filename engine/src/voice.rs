@@ -17,6 +17,7 @@ use crate::client::VoiceClient;
 use crate::codec::{Decoder, Encoder};
 use crate::denoise::{Denoiser, Strength};
 use crate::groups::{self, Group, GroupType, PlayerState};
+use crate::i18n::Lang;
 use crate::payload::{self, SecretInfo};
 use crate::session::Event;
 
@@ -171,6 +172,8 @@ const HANGOVER_FRAMES: u32 = 25;
 
 pub struct Voice {
     pub config: Config,
+    /// The language of the lines for the chat; the game sets it.
+    pub lang: Lang,
     host: String,
     /// False while the game still looks the server's address up (its SRV
     /// redirect); a secret that arrives meanwhile waits in `pending`.
@@ -219,6 +222,7 @@ impl Voice {
         let denoiser = Denoiser::new(config.noise);
         Voice {
             config,
+            lang: Lang::En,
             host: String::new(),
             host_ready: false,
             pending: None,
@@ -385,14 +389,16 @@ impl Voice {
             }
             groups::JOINED_GROUP => {
                 if let Ok((group, wrong_password)) = groups::decode_joined(data) {
+                    let l = self.lang;
                     if wrong_password {
-                        self.notices.push("Неверный пароль группы".into());
+                        self.notices.push(l.pick("Wrong group password", "Неверный пароль группы").into());
                     } else if group != self.my_group {
-                        match group.and_then(|id| self.groups.get(&id)) {
-                            Some(g) => self.notices.push(format!("Вы в группе «{}»", g.name)),
-                            None if group.is_some() => self.notices.push("Вы в группе".into()),
-                            None => self.notices.push("Вы вышли из группы".into()),
-                        }
+                        let line = match group.and_then(|id| self.groups.get(&id)) {
+                            Some(g) => l.pick(format!("You are in group \"{}\"", g.name), format!("Вы в группе «{}»", g.name)),
+                            None if group.is_some() => l.pick("You are in a group", "Вы в группе").into(),
+                            None => l.pick("You left the group", "Вы вышли из группы").into(),
+                        };
+                        self.notices.push(line);
                     }
                     self.my_group = group;
                 }
@@ -715,6 +721,7 @@ mod tests {
     fn groups_follow_the_server() {
         use crate::buf::Writer;
         let mut v = Voice::new(Config::default());
+        v.lang = Lang::Ru;
         let mut g = Writer::new();
         g.uuid(7).string("Base").bool(false).bool(false).bool(false).i16(0);
         v.payload(groups::ADD_GROUP, &g.data);
@@ -732,6 +739,12 @@ mod tests {
         v.payload(groups::JOINED_GROUP, &j.data);
         assert_eq!(v.current_group().unwrap().name, "Base");
         assert_eq!(v.take_notices(), ["Вы в группе «Base»"]);
+        v.lang = Lang::En;
+        let mut left = Writer::new();
+        left.bool(false).bool(false);
+        v.payload(groups::JOINED_GROUP, &left.data);
+        assert_eq!(v.take_notices(), ["You left the group"]);
+        v.lang = Lang::Ru;
         v.payload(groups::JOINED_GROUP, &[0, 1]);
         assert_eq!(v.take_notices(), ["Неверный пароль группы"]);
         assert!(v.current_group().is_none());

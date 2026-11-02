@@ -11,6 +11,7 @@ pub mod codec;
 pub mod crypto;
 pub mod denoise;
 pub mod groups;
+pub mod i18n;
 #[allow(dead_code, unused_imports, clippy::all)]
 pub mod opus;
 pub mod packets;

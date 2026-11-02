@@ -5,10 +5,12 @@ use crate::Version;
 use crate::buf::Uuid;
 use crate::denoise::Strength;
 use crate::groups::Group;
+use crate::i18n::Lang;
 use crate::voice::{Activation, Config};
 
 /// What a page shows besides the settings themselves.
 pub struct PageState<'a> {
+    pub lang: Lang,
     pub mic_test: bool,
     /// The microphone's level now, in dBFS (shown during the test).
     pub level_db: f32,
@@ -60,9 +62,9 @@ fn next_device(now: &str, names: &[String]) -> String {
     all[(i + 1) % all.len()].clone()
 }
 
-fn device_label(name: &str) -> String {
+fn device_label(name: &str, lang: Lang) -> String {
     if name.is_empty() {
-        return "по умолчанию".into();
+        return lang.pick("default", "по умолчанию").into();
     }
     // Long Windows names don't fit the button.
     let short: String = name.chars().take(32).collect();
@@ -70,31 +72,38 @@ fn device_label(name: &str) -> String {
 }
 
 pub fn labels(c: &Config, page: &PageState<'_>) -> Vec<String> {
+    let l = page.lang;
     let noise = match c.noise {
-        Strength::Off => "выкл",
-        Strength::Low => "слабое",
-        Strength::Medium => "среднее",
-        Strength::High => "сильное",
+        Strength::Off => l.pick("off", "выкл"),
+        Strength::Low => l.pick("low", "слабое"),
+        Strength::Medium => l.pick("medium", "среднее"),
+        Strength::High => l.pick("high", "сильное"),
     };
+    let threshold = c.threshold_db.round();
+    let volume = (c.volume * 100.0).round();
+    let gain = (c.mic_gain * 100.0).round();
+    let mic = device_label(&c.mic_device, l);
+    let speakers = device_label(&c.speaker_device, l);
+    let level = page.level_db.round().max(-99.0);
     vec![
         match c.activation {
-            Activation::PushToTalk => "Режим: по кнопке (push-to-talk)".into(),
-            Activation::Voice => "Режим: голосовая активация".into(),
+            Activation::PushToTalk => l.pick("Mode: push to talk", "Режим: по кнопке (push-to-talk)").into(),
+            Activation::Voice => l.pick("Mode: voice activation", "Режим: голосовая активация").into(),
         },
-        format!("Порог активации: {} дБ", c.threshold_db.round()),
-        format!("Шумоподавление: {noise}"),
-        format!("Громкость: {}%", (c.volume * 100.0).round()),
-        format!("Усиление микрофона: {}%", (c.mic_gain * 100.0).round()),
-        format!("Микрофон: {}", device_label(&c.mic_device)),
-        format!("Динамики: {}", device_label(&c.speaker_device)),
+        l.pick(format!("Activation threshold: {threshold} dB"), format!("Порог активации: {threshold} дБ")),
+        l.pick(format!("Noise suppression: {noise}"), format!("Шумоподавление: {noise}")),
+        l.pick(format!("Volume: {volume}%"), format!("Громкость: {volume}%")),
+        l.pick(format!("Microphone gain: {gain}%"), format!("Усиление микрофона: {gain}%")),
+        l.pick(format!("Microphone: {mic}"), format!("Микрофон: {mic}")),
+        l.pick(format!("Speakers: {speakers}"), format!("Динамики: {speakers}")),
         if page.mic_test {
-            format!("Проверка микрофона: вкл (уровень {} дБ)", page.level_db.round().max(-99.0))
+            l.pick(format!("Microphone test: on (level {level} dB)"), format!("Проверка микрофона: вкл (уровень {level} дБ)"))
         } else {
-            "Проверка микрофона: выкл".into()
+            l.pick("Microphone test: off", "Проверка микрофона: выкл").into()
         },
         match c.version {
-            Version::V20 => "Сервер: Simple Voice Chat 2.6.x".into(),
-            Version::V21 => "Сервер: Simple Voice Chat 2.7".into(),
+            Version::V20 => l.pick("Server: Simple Voice Chat 2.6.x", "Сервер: Simple Voice Chat 2.6.x").into(),
+            Version::V21 => l.pick("Server: Simple Voice Chat 2.7", "Сервер: Simple Voice Chat 2.7").into(),
         },
     ]
     .into_iter()
@@ -103,19 +112,20 @@ pub fn labels(c: &Config, page: &PageState<'_>) -> Vec<String> {
 }
 
 fn group_labels(page: &PageState<'_>) -> Vec<String> {
+    let l = page.lang;
     if !page.connected {
-        return vec!["Группы: зайдите на сервер с голосовым чатом".into()];
+        return vec![l.pick("Groups: join a server with voice chat", "Группы: зайдите на сервер с голосовым чатом").into()];
     }
     let mut out = vec![
         match page.group {
-            Some((g, n)) => format!("Группа: {} ({n}) — выйти", g.name),
-            None => "Группа: нет".into(),
+            Some((g, n)) => l.pick(format!("Group: {} ({n}), leave", g.name), format!("Группа: {} ({n}) — выйти", g.name)),
+            None => l.pick("Group: none", "Группа: нет").into(),
         },
-        "Создать группу".into(),
+        l.pick("Create a group", "Создать группу").into(),
     ];
     for (g, n) in page.groups.iter().filter(|(g, _)| Some(g.id) != page.group.map(|(c, _)| c.id)) {
-        let lock = if g.has_password { ", пароль" } else { "" };
-        out.push(format!("Войти: {} ({n}{lock})", g.name));
+        let lock = if g.has_password { l.pick(", password", ", пароль") } else { "" };
+        out.push(l.pick(format!("Join: {} ({n}{lock})", g.name), format!("Войти: {} ({n}{lock})", g.name)));
     }
     out
 }
@@ -172,7 +182,7 @@ mod tests {
     use super::*;
 
     fn page<'a>(mics: &'a [String], spk: &'a [String]) -> PageState<'a> {
-        PageState { mic_test: false, level_db: -127.0, microphones: mics, speakers: spk, connected: false, group: None, groups: &[] }
+        PageState { lang: Lang::Ru, mic_test: false, level_db: -127.0, microphones: mics, speakers: spk, connected: false, group: None, groups: &[] }
     }
 
     #[test]
@@ -206,6 +216,7 @@ mod tests {
         let list = vec![(g(1, "Base", false), 2), (g(2, "Secret", true), 1)];
         let none: Vec<String> = Vec::new();
         let mut p = PageState {
+            lang: Lang::Ru,
             mic_test: false,
             level_db: -127.0,
             microphones: &none,
@@ -227,6 +238,41 @@ mod tests {
         assert_eq!(&l[SETTINGS..], ["Группа: Base (2) — выйти", "Создать группу", "Войти: Secret (1, пароль)"]);
         assert_eq!(click(&mut c, SETTINGS, &p), Click::LeaveGroup);
         assert_eq!(click(&mut c, SETTINGS + 2, &p), Click::JoinGroup(2, true));
+    }
+
+    #[test]
+    fn english_page_has_no_russian_and_the_same_buttons() {
+        use crate::groups::GroupType;
+        let g = Group { id: 1, name: "Base".into(), has_password: true, persistent: false, hidden: false, kind: GroupType::Normal };
+        let list = vec![(g, 2)];
+        let none: Vec<String> = Vec::new();
+        let mut c = Config::default();
+        for connected in [false, true] {
+            for test in [false, true] {
+                let page = |lang| PageState {
+                    lang,
+                    mic_test: test,
+                    level_db: -40.0,
+                    microphones: &none,
+                    speakers: &none,
+                    connected,
+                    group: None,
+                    groups: &list,
+                };
+                for activation in [Activation::PushToTalk, Activation::Voice] {
+                    c.activation = activation;
+                    for noise in Strength::ALL {
+                        c.noise = noise;
+                        let en = labels(&c, &page(Lang::En));
+                        let ru = labels(&c, &page(Lang::Ru));
+                        assert_eq!(en.len(), ru.len());
+                        for line in &en {
+                            assert!(!line.chars().any(|ch| ('\u{400}'..='\u{4ff}').contains(&ch)), "{line}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

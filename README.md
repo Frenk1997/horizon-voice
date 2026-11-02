@@ -14,6 +14,7 @@ their public source, whose licence is "All Rights Reserved". The server still ne
 - Volume by distance and stereo panning by where the speaker stands.
 - Groups: join and leave from the menu, or `/vgroup list | join | create | leave`.
 - Noise suppression, microphone gain, volume, choice of devices, and a microphone test.
+- English and Russian, following the game's language.
 
 Settings are kept in `config/horizon_voice.txt`.
 

@@ -1,6 +1,6 @@
 [mod]
 id = "horizon_voice"
-version = "0.3.0"
+version = "0.3.1"
 priority = 100
 
 [compatibility]
@@ -65,7 +65,10 @@ id = "list"
 kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
 helper = "list.rs"
-bindings = [{ name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" }]
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+]
 
 [[injection]]
 id = "settings"
@@ -73,6 +76,7 @@ kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_settings"
 helper = "settings.rs"
 bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "mod_id", ty = "&str", value = "mod_id" },
   { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
 ]
